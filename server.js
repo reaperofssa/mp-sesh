@@ -20,6 +20,9 @@ const streams = {};
 app.use(express.static('public'));
 app.use('/songs', express.static(SONGS_DIR));
 
+app.get('/stream/:streamId', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'stream.html'));
+});
 // Endpoint to get current track + elapsed time
 app.get('/stream/:streamId/currentTrack', (req, res) => {
   const stream = streams[req.params.streamId];
