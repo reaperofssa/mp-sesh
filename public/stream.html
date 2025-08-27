@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Stream Player</title>
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #121212;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+  }
+
+  .player {
+    background: #1e1e1e;
+    padding: 25px 30px;
+    border-radius: 12px;
+    width: 320px;
+    text-align: center;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+  }
+
+  .song-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .progress-container {
+    background: #333;
+    height: 8px;
+    border-radius: 8px;
+    width: 100%;
+    margin-bottom: 20px;
+  }
+
+  .progress {
+    background: #1db954;
+    width: 0%;
+    height: 100%;
+    border-radius: 8px;
+    transition: width 0.2s linear;
+  }
+
+  #startBtn {
+    background: #1db954;
+    border: none;
+    color: #fff;
+    padding: 12px 25px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+
+  #startBtn:hover {
+    background: #1ed760;
+  }
+</style>
+</head>
+<body>
+
+<div class="player">
+  <div class="song-title" id="songTitle">Loading...</div>
+  <div class="progress-container">
+    <div class="progress" id="progressBar"></div>
+  </div>
+  <button id="startBtn">Start Stream</button>
+</div>
+
+<script>
+const streamId = location.pathname.split('/').pop();
+
+const audioA = new Audio();
+const audioB = new Audio();
+let currentAudio = audioA;
+let nextAudio = audioB;
+let currentIndex = 0;
+
+const songTitleEl = document.getElementById('songTitle');
+const progressBarEl = document.getElementById('progressBar');
+
+// Update Media Session info for iOS and Android
+function updateMediaSession(songName) {
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: songName,
+      artist: 'Live Stream',
+      album: 'Your Stream',
+      artwork: [{ src: 'https://uploadnx.zone.id/kjbeed.jpeg', sizes: '512x512', type: 'image/png' }]
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => currentAudio.play());
+    navigator.mediaSession.setActionHandler('pause', () => currentAudio.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', null);
+    navigator.mediaSession.setActionHandler('nexttrack', null);
+  }
+}
+
+async function syncStream() {
+  // Fetch current stream state
+  const res = await fetch(`/stream/${streamId}/currentTrack`);
+  const data = await res.json();
+  const queue = data.queue;
+  currentIndex = data.currentIndex;
+
+  // Set current song
+  const currentSongName = queue[currentIndex].split('/').pop();
+  songTitleEl.textContent = currentSongName;
+  updateMediaSession(currentSongName);
+
+  currentAudio.src = `/songs/${queue[currentIndex]}`;
+  currentAudio.currentTime = data.elapsed;
+  currentAudio.play();
+
+  // Preload next song
+  const nextIndex = (currentIndex + 1) % queue.length;
+  nextAudio.src = `/songs/${queue[nextIndex]}`;
+  nextAudio.load();
+
+  // Auto-swap and preload continuously
+  currentAudio.onended = () => {
+    currentIndex = nextIndex;
+    [currentAudio, nextAudio] = [nextAudio, currentAudio];
+
+    const nextSongName = queue[currentIndex].split('/').pop();
+    songTitleEl.textContent = nextSongName;
+    updateMediaSession(nextSongName);
+
+    currentAudio.play();
+
+    // Preload following track
+    const followingIndex = (currentIndex + 1) % queue.length;
+    nextAudio.src = `/songs/${queue[followingIndex]}`;
+    nextAudio.load();
+  };
+
+  // Update progress bar
+  function updateProgress() {
+    if (!currentAudio.duration || isNaN(currentAudio.duration)) return;
+    const percent = (currentAudio.currentTime / currentAudio.duration) * 100;
+    progressBarEl.style.width = percent + '%';
+    requestAnimationFrame(updateProgress);
+  }
+  updateProgress();
+}
+
+// Start button due to autoplay restrictions
+document.getElementById('startBtn').addEventListener('click', () => {
+  syncStream();
+  document.getElementById('startBtn').style.display = 'none';
+});
+</script>
+
+</body>
+</html>
