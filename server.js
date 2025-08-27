@@ -20,16 +20,193 @@ const SONGS_DIR = path.join(__dirname, 'songs');
 if (!fs.existsSync(SONGS_DIR)) fs.mkdirSync(SONGS_DIR);
 
 // Memory storage
-// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws) }
+// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws), users:Map(userId -> {id, name, joinedAt}) }
 const streams = {};
 
 app.use(express.static('public'));
 app.use('/songs', express.static(SONGS_DIR));
+app.use(express.json()); // Add JSON parsing middleware
 
 // Serve player
 app.get('/stream/:streamId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'stream.html'));
 });
+
+// 👥 User joined stream
+app.post('/joined/:streamId', (req, res) => {
+  const { streamId } = req.params;
+  const { name, id } = req.body;
+
+  // Validate input
+  if (!name || !id) {
+    return res.status(400).json({ error: 'Name and id are required' });
+  }
+
+  // Check if stream exists
+  const stream = streams[streamId];
+  if (!stream) {
+    return res.status(404).json({ error: 'Stream not found' });
+  }
+
+  // Initialize users Map if it doesn't exist
+  if (!stream.users) {
+    stream.users = new Map();
+  }
+
+  // Add user to stream
+  stream.users.set(id, {
+    id,
+    name,
+    joinedAt: new Date().toISOString(),
+    lastHeartbeat: new Date().toISOString()
+  });
+
+  // Broadcast user joined to all clients
+  broadcastUserUpdate(streamId, 'user_joined', { id, name });
+
+  res.json({ 
+    success: true, 
+    message: `User ${name} joined stream ${streamId}`,
+    totalUsers: stream.users.size
+  });
+});
+
+// 👤 User left stream
+app.post('/left/:streamId', (req, res) => {
+  const { streamId } = req.params;
+  const { id } = req.body;
+
+  // Validate input
+  if (!id) {
+    return res.status(400).json({ error: 'User id is required' });
+  }
+
+  // Check if stream exists
+  const stream = streams[streamId];
+  if (!stream) {
+    return res.status(404).json({ error: 'Stream not found' });
+  }
+
+  // Initialize users Map if it doesn't exist
+  if (!stream.users) {
+    stream.users = new Map();
+  }
+
+  // Check if user exists in stream
+  const user = stream.users.get(id);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found in stream' });
+  }
+
+  // Remove user from stream
+  stream.users.delete(id);
+
+  // Broadcast user left to all clients
+  broadcastUserUpdate(streamId, 'user_left', { id, name: user.name });
+
+  res.json({ 
+    success: true, 
+    message: `User ${user.name} left stream ${streamId}`,
+    totalUsers: stream.users.size
+  });
+});
+
+// 📋 List all users in stream
+app.get('/list/:streamId', (req, res) => {
+  const { streamId } = req.params;
+
+  // Check if stream exists
+  const stream = streams[streamId];
+  if (!stream) {
+    return res.status(404).json({ error: 'Stream not found' });
+  }
+
+  // Initialize users Map if it doesn't exist
+  if (!stream.users) {
+    stream.users = new Map();
+  }
+
+  // Convert Map to array for JSON response
+  const users = Array.from(stream.users.values());
+
+  res.json({
+    streamId,
+    totalUsers: users.length,
+    users: users
+  });
+});
+
+// 💓 Heartbeat endpoint
+app.post('/heartbeat/:streamId', (req, res) => {
+  const { streamId } = req.params;
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+
+  const stream = streams[streamId];
+  if (!stream) {
+    return res.status(404).json({ error: 'Stream not found' });
+  }
+
+  // Initialize users Map if it doesn't exist
+  if (!stream.users) {
+    stream.users = new Map();
+  }
+
+  // Update user's last heartbeat
+  const user = stream.users.get(userId);
+  if (user) {
+    user.lastHeartbeat = new Date().toISOString();
+    res.json({ success: true, message: 'Heartbeat updated' });
+  } else {
+    res.status(404).json({ error: 'User not found in stream' });
+  }
+});
+
+// Clean up inactive users (no heartbeat for 30 seconds)
+setInterval(() => {
+  const now = new Date();
+  for (const streamId in streams) {
+    const stream = streams[streamId];
+    if (!stream.users) continue;
+
+    const usersToRemove = [];
+    for (const [userId, user] of stream.users) {
+      const lastHeartbeat = new Date(user.lastHeartbeat || user.joinedAt);
+      const timeSinceHeartbeat = (now - lastHeartbeat) / 1000;
+      
+      if (timeSinceHeartbeat > 30) { // 30 seconds timeout
+        usersToRemove.push({ userId, user });
+      }
+    }
+
+    // Remove inactive users
+    for (const { userId, user } of usersToRemove) {
+      stream.users.delete(userId);
+      broadcastUserUpdate(streamId, 'user_left', { id: userId, name: user.name, reason: 'timeout' });
+    }
+  }
+}, 15000); // Check every 15 seconds
+
+// Broadcast user updates to WebSocket clients
+function broadcastUserUpdate(streamId, type, userData) {
+  const stream = streams[streamId];
+  if (!stream) return;
+
+  const payload = {
+    type,
+    data: userData,
+    timestamp: new Date().toISOString()
+  };
+
+  for (const client of stream.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(payload));
+    }
+  }
+}
 
 // WebSocket for real-time sync
 wss.on('connection', (ws, req) => {
@@ -137,7 +314,8 @@ bot.command('stream', async (ctx) => {
       ],
       currentIndex: 0,
       songStartTime: Date.now(),
-      clients: new Set()
+      clients: new Set(),
+      users: new Map() // Initialize users Map
     };
 
     ctx.reply(`🎶 Your stream: https://yourdomain.com/stream/${streamId}`);
