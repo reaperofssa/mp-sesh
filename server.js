@@ -5,29 +5,59 @@ const path = require('path');
 const crypto = require('crypto');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
+const http = require('http');
+const WebSocket = require('ws');
 
-const bot = new Telegraf('7069823048:AAFeeFtSj_cbEiuSZm8uImysJIKrcYHlg4A');
+const BOT_TOKEN = '7069823048:AAFeeFtSj_cbEiuSZm8uImysJIKrcYHlg4A';
+const bot = new Telegraf(BOT_TOKEN);
+
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // Songs folder
 const SONGS_DIR = path.join(__dirname, 'songs');
 if (!fs.existsSync(SONGS_DIR)) fs.mkdirSync(SONGS_DIR);
 
-// Memory storage: streamId -> { queue: [ { fileName, meta } ], currentIndex, songStartTime }
+// Memory storage
+// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws) }
 const streams = {};
 
 app.use(express.static('public'));
 app.use('/songs', express.static(SONGS_DIR));
 
-// Serve player page
+// Serve player
 app.get('/stream/:streamId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'stream.html'));
 });
 
-// Current track metadata endpoint
-app.get('/stream/:streamId/currentTrack', (req, res) => {
-  const stream = streams[req.params.streamId];
-  if (!stream) return res.status(404).send('Stream not found');
+// WebSocket for real-time sync
+wss.on('connection', (ws, req) => {
+  const urlParts = req.url.split('/');
+  const streamId = urlParts[urlParts.length - 1];
+
+  const stream = streams[streamId];
+  if (!stream) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Stream not found' }));
+    ws.close();
+    return;
+  }
+
+  // Save client
+  stream.clients.add(ws);
+
+  // Send initial state
+  sendStreamUpdate(streamId);
+
+  ws.on('close', () => {
+    stream.clients.delete(ws);
+  });
+});
+
+// Broadcast helper
+function sendStreamUpdate(streamId) {
+  const stream = streams[streamId];
+  if (!stream) return;
 
   const now = Date.now();
   const current = stream.queue[stream.currentIndex];
@@ -36,7 +66,8 @@ app.get('/stream/:streamId/currentTrack', (req, res) => {
   const nextIndex = (stream.currentIndex + 1) % stream.queue.length;
   const nextSong = stream.queue[nextIndex];
 
-  res.json({
+  const payload = {
+    type: 'update',
     elapsed,
     currentIndex: stream.currentIndex,
     current: {
@@ -44,43 +75,42 @@ app.get('/stream/:streamId/currentTrack', (req, res) => {
       meta: current.meta
     },
     next: nextSong
-      ? {
-          file: `/songs/${nextSong.fileName}`,
-          meta: nextSong.meta
-        }
+      ? { file: `/songs/${nextSong.fileName}`, meta: nextSong.meta }
       : null,
     queue: stream.queue
-  });
-});
+  };
 
-// Utility: fetch audio metadata
+  for (const client of stream.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(payload));
+    }
+  }
+}
+
+// Audio metadata
 function getAudioMeta(filePath) {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => {
       if (err) return reject(err);
-      const format = metadata.format;
       resolve({
-        duration: format.duration,
-        size: format.size,
-        bit_rate: format.bit_rate
+        duration: metadata.format.duration,
+        size: metadata.format.size,
+        bit_rate: metadata.format.bit_rate
       });
     });
   });
 }
 
-// 🎵 Start a new stream with API search: /stream <song name>
+// 🎵 Start stream
 bot.command('stream', async (ctx) => {
   const query = ctx.message.text.split(' ').slice(1).join(' ');
   if (!query) return ctx.reply('Usage: /stream <song name>');
 
   try {
-    // 🔎 Search from API
     const apiRes = await axios.get(`https://apis.davidcyriltech.my.id/play?query=${encodeURIComponent(query)}`);
     const songData = apiRes.data.result;
 
-    // Download audio
-    const ext = '.mp3';
-    const fileName = crypto.randomUUID() + ext;
+    const fileName = crypto.randomUUID() + '.mp3';
     const filePath = path.join(SONGS_DIR, fileName);
 
     const writer = fs.createWriteStream(filePath);
@@ -88,7 +118,6 @@ bot.command('stream', async (ctx) => {
     response.data.pipe(writer);
     await new Promise(resolve => writer.on('finish', resolve));
 
-    // Get metadata
     const audioMeta = await getAudioMeta(filePath);
 
     const streamId = crypto.randomUUID();
@@ -107,17 +136,18 @@ bot.command('stream', async (ctx) => {
         }
       ],
       currentIndex: 0,
-      songStartTime: Date.now()
+      songStartTime: Date.now(),
+      clients: new Set()
     };
 
-    ctx.reply(`🎶 Your stream has started: https://yourdomain.com/stream/${streamId}`);
+    ctx.reply(`🎶 Your stream: https://yourdomain.com/stream/${streamId}`);
   } catch (err) {
     console.error(err);
     ctx.reply('❌ Failed to start stream.');
   }
 });
 
-// 🎶 Queue another song: /queue <streamId> <song name>
+// 🎶 Queue another song
 bot.command('queue', async (ctx) => {
   const args = ctx.message.text.split(' ');
   if (args.length < 3) return ctx.reply('Usage: /queue <streamId> <song name>');
@@ -131,9 +161,7 @@ bot.command('queue', async (ctx) => {
     const apiRes = await axios.get(`https://apis.davidcyriltech.my.id/play?query=${encodeURIComponent(query)}`);
     const songData = apiRes.data.result;
 
-    // Download audio
-    const ext = '.mp3';
-    const fileName = crypto.randomUUID() + ext;
+    const fileName = crypto.randomUUID() + '.mp3';
     const filePath = path.join(SONGS_DIR, fileName);
 
     const writer = fs.createWriteStream(filePath);
@@ -141,7 +169,6 @@ bot.command('queue', async (ctx) => {
     response.data.pipe(writer);
     await new Promise(resolve => writer.on('finish', resolve));
 
-    // Get metadata
     const audioMeta = await getAudioMeta(filePath);
 
     stream.queue.push({
@@ -156,10 +183,13 @@ bot.command('queue', async (ctx) => {
       }
     });
 
+    // 🔔 Notify clients
+    sendStreamUpdate(streamId);
+
     ctx.reply(`✅ Added "${songData.title}" to stream ${streamId}`);
   } catch (err) {
     console.error(err);
-    ctx.reply('❌ Failed to add song to queue.');
+    ctx.reply('❌ Failed to add song.');
   }
 });
 
@@ -174,10 +204,11 @@ setInterval(() => {
     if (elapsed >= current.meta.duration) {
       stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
       stream.songStartTime = Date.now();
+      sendStreamUpdate(streamId);
     }
   }
 }, 1000);
 
-// Start bot + server
+// Start
 bot.launch();
-app.listen(3000, () => console.log('🚀 Server running on port 3000'));
+server.listen(3000, () => console.log('🚀 Server + WS running on port 3000'));
