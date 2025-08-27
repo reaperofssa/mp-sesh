@@ -9,17 +9,31 @@
     font-family: 'Segoe UI', sans-serif;
     background: #121212;
     color: #fff;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh; margin: 0;
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
   }
   .player {
     background: #1e1e1e;
     padding: 25px 30px;
     border-radius: 12px;
-    width: 350px; text-align: center;
+    text-align: center;
     box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    height: fit-content;
+  }
+  .sidebar {
+    background: #1e1e1e;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    height: fit-content;
   }
   .cover {
     width: 100%; height: 200px; margin-bottom: 15px;
@@ -30,7 +44,6 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .song-meta { font-size: 14px; color: #aaa; margin-bottom: 15px; }
-  .up-next { font-size: 14px; color: #bbb; margin-bottom: 20px; }
   .progress-container {
     background: #333; height: 8px; border-radius: 8px;
     width: 100%; margin-bottom: 20px; overflow: hidden;
@@ -44,19 +57,142 @@
     padding: 12px 25px; border-radius: 25px; cursor: pointer; font-size: 16px;
   }
   #startBtn:hover { background: #1ed760; }
+  
+  /* Sidebar Styles */
+  .section {
+    margin-bottom: 30px;
+  }
+  .section h3 {
+    font-size: 16px;
+    margin-bottom: 15px;
+    color: #fff;
+    border-bottom: 2px solid #1db954;
+    padding-bottom: 5px;
+  }
+  .users-list {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .user-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #333;
+  }
+  .user-item:last-child {
+    border-bottom: none;
+  }
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #1db954;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  .user-name {
+    font-size: 14px;
+    color: #fff;
+  }
+  .queue-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .queue-item {
+    display: flex;
+    padding: 10px 0;
+    border-bottom: 1px solid #333;
+  }
+  .queue-item:last-child {
+    border-bottom: none;
+  }
+  .queue-item.current {
+    background: rgba(29, 185, 84, 0.1);
+    border-radius: 8px;
+    padding: 10px;
+    margin: 5px 0;
+  }
+  .queue-thumbnail {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    object-fit: cover;
+    margin-right: 10px;
+    background: #333;
+  }
+  .queue-info {
+    flex: 1;
+  }
+  .queue-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+    margin-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .queue-duration {
+    font-size: 12px;
+    color: #aaa;
+  }
+  .queue-index {
+    font-size: 12px;
+    color: #1db954;
+    margin-right: 10px;
+    font-weight: bold;
+    min-width: 20px;
+  }
+  .current-indicator {
+    color: #1db954;
+    font-size: 12px;
+    margin-left: 5px;
+  }
+  
+  @media (max-width: 768px) {
+    .container {
+      grid-template-columns: 1fr;
+      gap: 15px;
+    }
+    .sidebar {
+      order: -1;
+    }
+  }
 </style>
 </head>
 <body>
 
-<div class="player">
-  <img id="coverArt" class="cover" src="/default-artwork.png" alt="Cover">
-  <div class="song-title" id="songTitle">Loading...</div>
-  <div class="song-meta" id="songMeta">--</div>
-  <div class="up-next" id="upNext">Up next: --</div>
-  <div class="progress-container"><div class="progress" id="progressBar"></div></div>
-  <button id="startBtn">Start Stream</button>
+<div class="container">
+  <div class="player">
+    <img id="coverArt" class="cover" src="/default-artwork.png" alt="Cover">
+    <div class="song-title" id="songTitle">Loading...</div>
+    <div class="song-meta" id="songMeta">--</div>
+    <div class="progress-container"><div class="progress" id="progressBar"></div></div>
+    <button id="startBtn">Start Stream</button>
+  </div>
+
+  <div class="sidebar">
+    <div class="section">
+      <h3>👥 Listeners (<span id="userCount">0</span>)</h3>
+      <div class="users-list" id="usersList">
+        <div style="text-align: center; color: #666; padding: 20px;">No listeners yet</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>🎵 Queue (<span id="queueCount">0</span>)</h3>
+      <div class="queue-list" id="queueList">
+        <div style="text-align: center; color: #666; padding: 20px;">No songs queued</div>
+      </div>
+    </div>
+  </div>
 </div>
 
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script>
 /** ---------- CONFIG + STATE ---------- **/
 const streamId = location.pathname.split('/').pop();
@@ -73,14 +209,37 @@ let serverElapsed = 0; // seconds from server
 let serverUpdateAt = 0; // Date.now() when we received serverElapsed
 let ws = null;
 let started = false;
+let users = [];
+let userId = null;
+let userName = null;
+let heartbeatInterval = null;
+
+// Initialize Telegram WebApp
+if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
+  Telegram.WebApp.ready();
+  const user = Telegram.WebApp.initDataUnsafe.user;
+  if (user) {
+    userId = user.id;
+    userName = user.first_name || user.username || `User${user.id}`;
+  }
+}
+
+// Fallback for testing without Telegram
+if (!userId) {
+  userId = Math.random().toString(36).substr(2, 9);
+  userName = 'Guest' + userId.substr(0, 4);
+}
 
 // UI elements
 const songTitleEl = document.getElementById('songTitle');
 const songMetaEl  = document.getElementById('songMeta');
-const upNextEl    = document.getElementById('upNext');
 const coverArtEl  = document.getElementById('coverArt');
 const progressEl  = document.getElementById('progressBar');
 const startBtn    = document.getElementById('startBtn');
+const usersListEl = document.getElementById('usersList');
+const userCountEl = document.getElementById('userCount');
+const queueListEl = document.getElementById('queueList');
+const queueCountEl = document.getElementById('queueCount');
 
 /** ---------- HELPERS ---------- **/
 function fmtDuration(seconds) {
@@ -96,31 +255,135 @@ function fmtViews(v) {
 function getDurationOf(index) {
   return queue[index]?.meta?.duration || currentAudio.duration || 1;
 }
+
 function updateMediaSession(meta = {}) {
   if (!('mediaSession' in navigator)) return;
   navigator.mediaSession.metadata = new MediaMetadata({
     title: meta.title || 'Unknown Title',
-    artist: 'Stream',
-    album: meta.published || '',
+    artist: 'Live Stream',
+    album: meta.published || 'Stream',
     artwork: [{ src: meta.thumbnail || '/default-artwork.png', sizes: '512x512', type: 'image/png' }]
   });
-  navigator.mediaSession.setActionHandler('play', () => currentAudio.play());
-  navigator.mediaSession.setActionHandler('pause', () => currentAudio.pause());
+  
+  // Disable all media session controls to prevent iOS interference
+  navigator.mediaSession.setActionHandler('play', null);
+  navigator.mediaSession.setActionHandler('pause', null);
   navigator.mediaSession.setActionHandler('previoustrack', null);
-  navigator.mediaSession.setActionHandler('nexttrack', () => {
-    // Optional: let system "next" just jump to end of track (no seek UI)
-    currentAudio.dispatchEvent(new Event('ended'));
-  });
+  navigator.mediaSession.setActionHandler('nexttrack', null);
+  navigator.mediaSession.setActionHandler('seekto', null);
+  navigator.mediaSession.setActionHandler('seekbackward', null);
+  navigator.mediaSession.setActionHandler('seekforward', null);
+  navigator.mediaSession.setActionHandler('stop', null);
 }
+
 function updateUI() {
   const now = queue[currentIndex];
   if (!now) return;
   songTitleEl.textContent = now.meta?.title || now.fileName;
   coverArtEl.src = now.meta?.thumbnail || '/default-artwork.png';
   songMetaEl.textContent = `${fmtDuration(now.meta?.duration)} • ${fmtViews(now.meta?.views)} • ${now.meta?.published || ''}`;
+}
 
-  const nxt = queue[(currentIndex + 1) % queue.length];
-  upNextEl.textContent = nxt ? 'Up next: ' + (nxt.meta?.title || nxt.fileName) : 'Up next: --';
+function updateUsersDisplay() {
+  userCountEl.textContent = users.length;
+  
+  if (users.length === 0) {
+    usersListEl.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No listeners yet</div>';
+    return;
+  }
+
+  usersListEl.innerHTML = users.map(user => `
+    <div class="user-item">
+      <div class="user-avatar">${user.name.charAt(0).toUpperCase()}</div>
+      <div class="user-name">${user.name}</div>
+    </div>
+  `).join('');
+}
+
+function updateQueueDisplay() {
+  queueCountEl.textContent = queue.length;
+  
+  if (queue.length === 0) {
+    queueListEl.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No songs queued</div>';
+    return;
+  }
+
+  queueListEl.innerHTML = queue.map((song, index) => `
+    <div class="queue-item ${index === currentIndex ? 'current' : ''}">
+      <div class="queue-index">${index + 1}</div>
+      <img class="queue-thumbnail" src="${song.meta?.thumbnail || '/default-artwork.png'}" alt="Thumbnail">
+      <div class="queue-info">
+        <div class="queue-title">
+          ${song.meta?.title || song.fileName}
+          ${index === currentIndex ? '<span class="current-indicator">♪ NOW</span>' : ''}
+        </div>
+        <div class="queue-duration">${fmtDuration(song.meta?.duration)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/** ---------- USER MANAGEMENT ---------- **/
+async function joinStream() {
+  try {
+    const response = await fetch(`/joined/${streamId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: userName, id: userId })
+    });
+    
+    if (response.ok) {
+      console.log('Joined stream successfully');
+      fetchUsers();
+    }
+  } catch (error) {
+    console.error('Failed to join stream:', error);
+  }
+}
+
+async function leaveStream() {
+  try {
+    await fetch(`/left/${streamId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: userId })
+    });
+  } catch (error) {
+    console.error('Failed to leave stream:', error);
+  }
+}
+
+async function fetchUsers() {
+  try {
+    const response = await fetch(`/list/${streamId}`);
+    if (response.ok) {
+      const data = await response.json();
+      users = data.users || [];
+      updateUsersDisplay();
+    }
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+  }
+}
+
+function startHeartbeat() {
+  // Initial heartbeat
+  sendHeartbeat();
+  
+  // Set up periodic heartbeat
+  heartbeatInterval = setInterval(sendHeartbeat, 10000); // every 10s
+}
+
+async function sendHeartbeat() {
+  try {
+    await fetch(`/heartbeat/${streamId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: userId })
+    });
+  } catch (error) {
+    console.error('Heartbeat failed:', error);
+  }
 }
 
 /** ---------- WS HANDLING ---------- **/
@@ -129,16 +392,24 @@ function connectWS() {
   ws = new WebSocket(`${proto}://${location.host}${WS_PATH}`);
 
   ws.onopen = () => {
-    // console.log('WS connected');
+    console.log('WS connected');
   };
 
   ws.onmessage = (evt) => {
     let msg;
     try { msg = JSON.parse(evt.data); } catch { return; }
+    
     if (msg.type === 'error') {
       console.error('WS error:', msg.message);
       return;
     }
+    
+    if (msg.type === 'user_joined' || msg.type === 'user_left') {
+      // Refresh users list when someone joins/leaves
+      fetchUsers();
+      return;
+    }
+    
     if (msg.type === 'update') {
       // Update state from server
       queue = (msg.queue || []).map(item => ({
@@ -149,9 +420,10 @@ function connectWS() {
       serverElapsed = msg.elapsed || 0;
       serverUpdateAt = Date.now();
 
-      // If user hasn’t started audio (autoplay restrictions), just refresh UI
+      // If user hasn't started audio (autoplay restrictions), just refresh UI
       if (!started) {
         updateUI();
+        updateQueueDisplay();
         return;
       }
 
@@ -169,6 +441,7 @@ function connectWS() {
 
       // Always refresh UI and preload next
       updateUI();
+      updateQueueDisplay();
       preloadNext();
     }
   };
@@ -213,6 +486,7 @@ async function primeAndPlayCurrent(forceElapsed = 0) {
     currentIndex = (currentIndex + 1) % queue.length;
     [currentAudio, nextAudio] = [nextAudio, currentAudio];
     updateUI();
+    updateQueueDisplay();
     updateMediaSession(queue[currentIndex]?.meta || {});
     currentAudio.play().catch(()=>{});
     preloadNext(); // prepare following track
@@ -247,6 +521,12 @@ startBtn.addEventListener('click', async () => {
   if (started) return;
   started = true;
 
+  // Join the stream
+  await joinStream();
+  
+  // Start heartbeat
+  startHeartbeat();
+
   connectWS();
 
   // Wait a moment for first WS update to arrive (initial state).
@@ -264,6 +544,7 @@ startBtn.addEventListener('click', async () => {
       serverElapsed = data.elapsed || 0;
       serverUpdateAt = Date.now();
       updateUI();
+      updateQueueDisplay();
       await primeAndPlayCurrent(serverElapsed);
       preloadNext();
     } catch (e) {
@@ -292,6 +573,29 @@ startBtn.addEventListener('click', async () => {
   // Hide button
   startBtn.style.display = 'none';
 });
+
+// Handle page unload - leave stream
+window.addEventListener('beforeunload', () => {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
+  if (started) {
+    leaveStream();
+  }
+});
+
+// Handle page visibility changes
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Page is hidden, but don't leave stream - heartbeat will handle timeout
+  } else if (started) {
+    // Page is visible again, refresh users list
+    fetchUsers();
+  }
+});
+
+// Initialize users display on load
+fetchUsers();
 
 </script>
 </body>
