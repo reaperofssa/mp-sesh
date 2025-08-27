@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
 
-const bot = new Telegraf('7069823048:AAFQsVqMR04ocQpvknEHjKyboisuNR7SJ8s');
+const bot = new Telegraf('7069823048:AAFeeFtSj_cbEiuSZm8uImysJIKrcYHlg4A');
 const app = express();
 
 // Songs folder
