@@ -42,12 +42,13 @@ app.get('/stream/:streamId/currentTrack', (req, res) => {
 
 // Start a new stream: /stream
 bot.command('stream', async (ctx) => {
-  const file = ctx.message.audio || ctx.message.document;
-  if (!file) return ctx.reply('Please send an audio file with the command.');
+  // Check for audio/document in current message OR replied message
+  const messageWithFile = ctx.message.audio || ctx.message.document || (ctx.message.reply_to_message && (ctx.message.reply_to_message.audio || ctx.message.reply_to_message.document));
+  if (!messageWithFile) return ctx.reply('Please send an audio file with the command.');
 
   try {
-    const fileLink = await ctx.telegram.getFileLink(file.file_id);
-    const ext = path.extname(file.file_name || 'song.mp3');
+    const fileLink = await ctx.telegram.getFileLink(messageWithFile.file_id);
+    const ext = path.extname(messageWithFile.file_name || 'song.mp3');
     const fileName = crypto.randomUUID() + ext;
     const filePath = path.join(SONGS_DIR, fileName);
 
@@ -79,8 +80,11 @@ bot.command('queue', async (ctx) => {
   const stream = streams[streamId];
   if (!stream) return ctx.reply('Stream not found.');
 
-  const file = ctx.message.audio || ctx.message.document;
-  if (!file) return ctx.reply('Please attach an audio file to add to the queue.');
+  // Check for audio/document in current message OR replied message
+  const file = ctx.message.audio || ctx.message.document ||
+               (ctx.message.reply_to_message && (ctx.message.reply_to_message.audio || ctx.message.reply_to_message.document));
+
+  if (!file) return ctx.reply('Please attach an audio file or reply to one to add to the queue.');
 
   try {
     const fileLink = await ctx.telegram.getFileLink(file.file_id);
