@@ -318,10 +318,41 @@ bot.command('stream', async (ctx) => {
       users: new Map() // Initialize users Map
     };
 
-    ctx.reply(`🎶 Your stream: https://yourdomain.com/stream/${streamId}`);
+    // Send message with WebApp button and copyable stream ID
+    const streamUrl = `https://mp-sesh.onrender.com/stream/${streamId}`;
+    const messageText = `🎶 **Stream Created Successfully!**
+
+🎵 **Now Playing:** ${songData.title}
+⏱️ **Duration:** ${Math.floor(audioMeta.duration / 60)}:${Math.floor(audioMeta.duration % 60).toString().padStart(2, '0')}
+👥 **Share this Stream ID with friends:**
+
+\`${streamId}\`
+
+Click the button below to open your stream player, or share the Stream ID with others so they can join!`;
+
+    await ctx.reply(messageText, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: '🎧 Open Stream Player',
+              web_app: { url: streamUrl }
+            }
+          ],
+          [
+            {
+              text: '📋 Copy Stream Link',
+              url: streamUrl
+            }
+          ]
+        ]
+      }
+    });
+
   } catch (err) {
     console.error(err);
-    ctx.reply('❌ Failed to start stream.');
+    ctx.reply('❌ Failed to start stream. Please try again.');
   }
 });
 
