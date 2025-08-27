@@ -20,8 +20,13 @@ const SONGS_DIR = path.join(__dirname, 'songs');
 if (!fs.existsSync(SONGS_DIR)) fs.mkdirSync(SONGS_DIR);
 
 // Memory storage
-// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws), users:Map(userId -> {id, name, joinedAt}), ownerId }
+// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws), users:Map(userId -> {id, name, joinedAt}), ownerId, lastActivity }
 const streams = {};
+
+// Constants
+const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB in bytes
+const MAX_DURATION = 15 * 60; // 15 minutes in seconds
+const STREAM_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes in milliseconds
 
 app.use(express.static('public'));
 app.use('/songs', express.static(SONGS_DIR));
@@ -52,6 +57,9 @@ app.post('/joined/:streamId', (req, res) => {
   if (!stream.users) {
     stream.users = new Map();
   }
+
+  // Update stream activity
+  stream.lastActivity = Date.now();
 
   // Add user to stream
   stream.users.set(id, {
@@ -97,6 +105,9 @@ app.post('/left/:streamId', (req, res) => {
   if (!user) {
     return res.status(404).json({ error: 'User not found in stream' });
   }
+
+  // Update stream activity
+  stream.lastActivity = Date.now();
 
   // Remove user from stream
   stream.users.delete(id);
@@ -155,6 +166,9 @@ app.post('/heartbeat/:streamId', (req, res) => {
     stream.users = new Map();
   }
 
+  // Update stream activity
+  stream.lastActivity = Date.now();
+
   // Update user's last heartbeat
   const user = stream.users.get(userId);
   if (user) {
@@ -190,6 +204,87 @@ setInterval(() => {
   }
 }, 15000); // Check every 15 seconds
 
+// Clean up empty streams after 30 minutes of inactivity
+setInterval(() => {
+  const now = Date.now();
+  const streamsToDelete = [];
+
+  for (const streamId in streams) {
+    const stream = streams[streamId];
+    const timeSinceActivity = now - (stream.lastActivity || 0);
+    const hasNoUsers = !stream.users || stream.users.size === 0;
+    
+    if (hasNoUsers && timeSinceActivity > STREAM_CLEANUP_INTERVAL) {
+      streamsToDelete.push(streamId);
+    }
+  }
+
+  // Clean up streams and their files
+  for (const streamId of streamsToDelete) {
+    const stream = streams[streamId];
+    
+    // Delete audio files
+    for (const song of stream.queue) {
+      const filePath = path.join(SONGS_DIR, song.fileName);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          console.error(`Failed to delete file ${filePath}:`, err);
+        }
+      }
+    }
+    
+    // Delete stream
+    delete streams[streamId];
+    console.log(`🧹 Cleaned up empty stream: ${streamId}`);
+  }
+}, 10 * 60 * 1000); // Check every 10 minutes
+
+// Function to notify all users in a stream about new song
+async function notifyUsersAboutNewSong(streamId, songData, queuedBy) {
+  const stream = streams[streamId];
+  if (!stream || !stream.users) return;
+
+  const duration = Math.floor(songData.meta.duration / 60) + ':' + Math.floor(songData.meta.duration % 60).toString().padStart(2, '0');
+  const caption = `🎵 **New Song Added to Stream!**
+
+🎶 **Title:** ${songData.meta.title}
+⏱️ **Duration:** ${duration}
+👤 **Added by:** ${queuedBy}
+📊 **Stream ID:** \`${streamId}\`
+📝 **Queue Position:** #${stream.queue.length}
+
+🎧 The song will play automatically when it's its turn!`;
+
+  // Send to all users in the stream (except the one who added it)
+  for (const [userId, user] of stream.users) {
+    try {
+      await bot.telegram.sendPhoto(userId, songData.meta.thumbnail, {
+        caption: caption,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: '🎧 Open Stream',
+                url: `https://mp-sesh.onrender.com/stream/${streamId}`
+              }
+            ]
+          ]
+        }
+      });
+    } catch (err) {
+      console.error(`Failed to notify user ${userId}:`, err.message);
+      // If user blocked the bot, remove them from stream
+      if (err.code === 403) {
+        stream.users.delete(userId);
+        broadcastUserUpdate(streamId, 'user_left', { id: userId, name: user.name, reason: 'blocked_bot' });
+      }
+    }
+  }
+}
+
 // Broadcast user updates to WebSocket clients
 function broadcastUserUpdate(streamId, type, userData) {
   const stream = streams[streamId];
@@ -222,6 +317,9 @@ wss.on('connection', (ws, req) => {
 
   // Save client
   stream.clients.add(ws);
+
+  // Update stream activity
+  stream.lastActivity = Date.now();
 
   // Send initial state
   sendStreamUpdate(streamId);
@@ -302,6 +400,18 @@ bot.command('stream', async (ctx) => {
 
     const audioMeta = await getAudioMeta(filePath);
 
+    // Check file size
+    if (audioMeta.size > MAX_FILE_SIZE) {
+      fs.unlinkSync(filePath); // Delete the file
+      return ctx.reply('❌ **File too large!**\n\nThis file is over 15MB. Please choose a shorter song or a different version.');
+    }
+
+    // Check duration
+    if (audioMeta.duration > MAX_DURATION) {
+      fs.unlinkSync(filePath); // Delete the file
+      return ctx.reply('❌ **Song too long!**\n\nThis song is over 15 minutes long. Please choose a shorter song.');
+    }
+
     const streamId = generateStreamId();
     const ownerId = ctx.from.id; // Save the stream creator's user ID
     
@@ -323,7 +433,8 @@ bot.command('stream', async (ctx) => {
       songStartTime: Date.now(),
       clients: new Set(),
       users: new Map(),
-      ownerId: ownerId // Store stream owner
+      ownerId: ownerId, // Store stream owner
+      lastActivity: Date.now() // Track stream activity
     };
 
     // Send message with WebApp button and copyable stream ID
@@ -533,6 +644,7 @@ bot.command('next', async (ctx) => {
     // Skip to next song
     stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
     stream.songStartTime = Date.now();
+    stream.lastActivity = Date.now();
     
     // Notify all clients via WebSocket
     sendStreamUpdate(streamId);
@@ -578,6 +690,7 @@ bot.action(/^next_(.+)$/, async (ctx) => {
   // Skip to next song
   stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
   stream.songStartTime = Date.now();
+  stream.lastActivity = Date.now();
   
   // Notify all clients via WebSocket
   sendStreamUpdate(streamId);
@@ -598,9 +711,13 @@ bot.command('queue', async (ctx) => {
   const streamId = args[1];
   const query = args.slice(2).join(' ');
   const stream = streams[streamId];
-  if (!stream) return ctx.reply('Stream not found.');
+  if (!stream) return ctx.reply('❌ Stream not found.');
+
+  const queuedBy = ctx.from.first_name || ctx.from.username || 'Unknown User';
 
   try {
+    ctx.reply('🔍 Searching for your song...');
+
     const apiRes = await axios.get(`https://apis.davidcyriltech.my.id/play?query=${encodeURIComponent(query)}`);
     const songData = apiRes.data.result;
 
@@ -614,7 +731,19 @@ bot.command('queue', async (ctx) => {
 
     const audioMeta = await getAudioMeta(filePath);
 
-    stream.queue.push({
+    // Check file size
+    if (audioMeta.size > MAX_FILE_SIZE) {
+      fs.unlinkSync(filePath); // Delete the file
+      return ctx.reply('❌ **File too large!**\n\nThis is not a suitable song - it\'s over 15MB. Please choose a shorter song or a different version.');
+    }
+
+    // Check duration
+    if (audioMeta.duration > MAX_DURATION) {
+      fs.unlinkSync(filePath); // Delete the file
+      return ctx.reply('❌ **Song too long!**\n\nThis is not a suitable song - it\'s over 15 minutes long. Please choose a shorter song.');
+    }
+
+    const songInfo = {
       fileName,
       meta: {
         title: songData.title,
@@ -624,15 +753,27 @@ bot.command('queue', async (ctx) => {
         published: songData.published,
         source: songData.video_url
       }
-    });
+    };
+
+    stream.queue.push(songInfo);
+    stream.lastActivity = Date.now();
 
     // 🔔 Notify clients
     sendStreamUpdate(streamId);
 
-    ctx.reply(`✅ Added "${songData.title}" to stream ${streamId}`);
+    // Send confirmation to the person who queued the song
+    const duration = Math.floor(audioMeta.duration / 60) + ':' + Math.floor(audioMeta.duration % 60).toString().padStart(2, '0');
+    await ctx.replyWithPhoto(songData.thumbnail, {
+      caption: `✅ **Song Added Successfully!**\n\n🎵 **Title:** ${songData.title}\n⏱️ **Duration:** ${duration}\n📊 **Stream:** \`${streamId}\`\n📝 **Queue Position:** #${stream.queue.length}\n\n🎧 Your song will play automatically when it's its turn!`,
+      parse_mode: 'Markdown'
+    });
+
+    // Notify all other users in the stream
+    await notifyUsersAboutNewSong(streamId, songInfo, queuedBy);
+
   } catch (err) {
     console.error(err);
-    ctx.reply('❌ Failed to add song.');
+    ctx.reply('❌ Failed to add song. Please try again.');
   }
 });
 
@@ -647,6 +788,7 @@ setInterval(() => {
     if (elapsed >= current.meta.duration) {
       stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
       stream.songStartTime = Date.now();
+      stream.lastActivity = Date.now();
       sendStreamUpdate(streamId);
     }
   }
