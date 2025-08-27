@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Live Stream Player</title>
 <style>
   body {
@@ -12,78 +12,38 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    margin: 0;
+    height: 100vh; margin: 0;
   }
-
   .player {
     background: #1e1e1e;
     padding: 25px 30px;
     border-radius: 12px;
-    width: 350px;
-    text-align: center;
+    width: 350px; text-align: center;
     box-shadow: 0 8px 20px rgba(0,0,0,0.5);
   }
-
   .cover {
-    width: 100%;
-    height: 200px;
-    margin-bottom: 15px;
-    border-radius: 10px;
-    object-fit: cover;
-    background: #333;
+    width: 100%; height: 200px; margin-bottom: 15px;
+    border-radius: 10px; object-fit: cover; background: #333;
   }
-
   .song-title {
-    font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 18px; font-weight: bold; margin-bottom: 5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-
-  .song-meta {
-    font-size: 14px;
-    color: #aaa;
-    margin-bottom: 15px;
-  }
-
-  .up-next {
-    font-size: 14px;
-    color: #bbb;
-    margin-bottom: 20px;
-  }
-
+  .song-meta { font-size: 14px; color: #aaa; margin-bottom: 15px; }
+  .up-next { font-size: 14px; color: #bbb; margin-bottom: 20px; }
   .progress-container {
-    background: #333;
-    height: 8px;
-    border-radius: 8px;
-    width: 100%;
-    margin-bottom: 20px;
+    background: #333; height: 8px; border-radius: 8px;
+    width: 100%; margin-bottom: 20px; overflow: hidden;
   }
-
   .progress {
-    background: #1db954;
-    width: 0%;
-    height: 100%;
-    border-radius: 8px;
-    transition: width 0.2s linear;
+    background: #1db954; width: 0%; height: 100%;
+    transition: width 0.15s linear;
   }
-
   #startBtn {
-    background: #1db954;
-    border: none;
-    color: #fff;
-    padding: 12px 25px;
-    border-radius: 25px;
-    cursor: pointer;
-    font-size: 16px;
+    background: #1db954; border: none; color: #fff;
+    padding: 12px 25px; border-radius: 25px; cursor: pointer; font-size: 16px;
   }
-
-  #startBtn:hover {
-    background: #1ed760;
-  }
+  #startBtn:hover { background: #1ed760; }
 </style>
 </head>
 <body>
@@ -93,136 +53,246 @@
   <div class="song-title" id="songTitle">Loading...</div>
   <div class="song-meta" id="songMeta">--</div>
   <div class="up-next" id="upNext">Up next: --</div>
-  <div class="progress-container">
-    <div class="progress" id="progressBar"></div>
-  </div>
+  <div class="progress-container"><div class="progress" id="progressBar"></div></div>
   <button id="startBtn">Start Stream</button>
 </div>
 
 <script>
+/** ---------- CONFIG + STATE ---------- **/
 const streamId = location.pathname.split('/').pop();
+const WS_PATH = `/stream-ws/${streamId}`;
 
 const audioA = new Audio();
 const audioB = new Audio();
 let currentAudio = audioA;
 let nextAudio = audioB;
-let currentIndex = 0;
-let queue = [];
 
+let queue = [];        // [{fileName, meta}, ...]
+let currentIndex = 0;  // index into queue
+let serverElapsed = 0; // seconds from server
+let serverUpdateAt = 0; // Date.now() when we received serverElapsed
+let ws = null;
+let started = false;
+
+// UI elements
 const songTitleEl = document.getElementById('songTitle');
-const songMetaEl = document.getElementById('songMeta');
-const upNextEl = document.getElementById('upNext');
-const coverArtEl = document.getElementById('coverArt');
-const progressBarEl = document.getElementById('progressBar');
+const songMetaEl  = document.getElementById('songMeta');
+const upNextEl    = document.getElementById('upNext');
+const coverArtEl  = document.getElementById('coverArt');
+const progressEl  = document.getElementById('progressBar');
+const startBtn    = document.getElementById('startBtn');
 
-// Media Session (iOS/Android system integration)
+/** ---------- HELPERS ---------- **/
+function fmtDuration(seconds) {
+  if (!seconds && seconds !== 0) return '--:--';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+function fmtViews(v) {
+  if (!v) return '0 views';
+  try { return Number(v).toLocaleString() + ' views'; } catch { return v + ' views'; }
+}
+function getDurationOf(index) {
+  return queue[index]?.meta?.duration || currentAudio.duration || 1;
+}
 function updateMediaSession(meta = {}) {
-  if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: meta.title || 'Unknown Title',
-      artist: "Stream",
-      album: meta.published || '',
-      artwork: [
-        { src: meta.thumbnail || '/default-artwork.png', sizes: '512x512', type: 'image/png' }
-      ]
-    });
-
-    navigator.mediaSession.setActionHandler('play', () => currentAudio.play());
-    navigator.mediaSession.setActionHandler('pause', () => currentAudio.pause());
-    navigator.mediaSession.setActionHandler('nexttrack', () => currentAudio.onended());
-  }
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: meta.title || 'Unknown Title',
+    artist: 'Stream',
+    album: meta.published || '',
+    artwork: [{ src: meta.thumbnail || '/default-artwork.png', sizes: '512x512', type: 'image/png' }]
+  });
+  navigator.mediaSession.setActionHandler('play', () => currentAudio.play());
+  navigator.mediaSession.setActionHandler('pause', () => currentAudio.pause());
+  navigator.mediaSession.setActionHandler('previoustrack', null);
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    // Optional: let system "next" just jump to end of track (no seek UI)
+    currentAudio.dispatchEvent(new Event('ended'));
+  });
 }
-
 function updateUI() {
-  const currentSong = queue[currentIndex];
-  if (!currentSong) return;
+  const now = queue[currentIndex];
+  if (!now) return;
+  songTitleEl.textContent = now.meta?.title || now.fileName;
+  coverArtEl.src = now.meta?.thumbnail || '/default-artwork.png';
+  songMetaEl.textContent = `${fmtDuration(now.meta?.duration)} • ${fmtViews(now.meta?.views)} • ${now.meta?.published || ''}`;
 
-  songTitleEl.textContent = currentSong.meta?.title || currentSong.fileName;
-  coverArtEl.src = currentSong.meta?.thumbnail || '/default-artwork.png';
-  
-  songMetaEl.textContent = `${formatDuration(currentSong.meta?.duration)} • ${formatViews(currentSong.meta?.views)} • ${currentSong.meta?.published || ''}`;
-
-  const nextSong = queue[(currentIndex + 1) % queue.length];
-  if (nextSong) {
-    upNextEl.textContent = "Up next: " + (nextSong.meta?.title || nextSong.fileName);
-  } else {
-    upNextEl.textContent = "Up next: --";
-  }
+  const nxt = queue[(currentIndex + 1) % queue.length];
+  upNextEl.textContent = nxt ? 'Up next: ' + (nxt.meta?.title || nxt.fileName) : 'Up next: --';
 }
 
-// format helpers
-function formatDuration(seconds) {
-  if (!seconds) return "--:--";
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
-  return `${mins}:${secs}`;
-}
-function formatViews(views) {
-  if (!views) return "0 views";
-  return views.toLocaleString() + " views";
-}
+/** ---------- WS HANDLING ---------- **/
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}${WS_PATH}`);
 
-async function syncStream(initial = false) {
-  try {
-    const res = await fetch(`/stream/${streamId}/currentTrack`);
-    const data = await res.json();
-    queue = data.queue;
-    currentIndex = data.currentIndex;
+  ws.onopen = () => {
+    // console.log('WS connected');
+  };
 
-    updateUI();
-    updateMediaSession(queue[currentIndex].meta);
-
-    if (initial) {
-      currentAudio.src = `/songs/${queue[currentIndex].fileName}`;
-      currentAudio.currentTime = data.elapsed;
-      await currentAudio.play();
-
-      // preload next
-      const nextIndex = (currentIndex + 1) % queue.length;
-      nextAudio.src = `/songs/${queue[nextIndex].fileName}`;
-      nextAudio.load();
-
-      currentAudio.onended = () => {
-        currentIndex = (currentIndex + 1) % queue.length;
-        [currentAudio, nextAudio] = [nextAudio, currentAudio];
-
-        updateUI();
-        updateMediaSession(queue[currentIndex].meta);
-
-        currentAudio.play();
-
-        const followingIndex = (currentIndex + 1) % queue.length;
-        nextAudio.src = `/songs/${queue[followingIndex].fileName}`;
-        nextAudio.load();
-      };
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === 'error') {
+      console.error('WS error:', msg.message);
+      return;
     }
-  } catch (err) {
-    console.error("Sync error:", err);
-  }
+    if (msg.type === 'update') {
+      // Update state from server
+      queue = (msg.queue || []).map(item => ({
+        fileName: item.fileName,
+        meta: item.meta
+      }));
+      currentIndex = msg.currentIndex || 0;
+      serverElapsed = msg.elapsed || 0;
+      serverUpdateAt = Date.now();
+
+      // If user hasn’t started audio (autoplay restrictions), just refresh UI
+      if (!started) {
+        updateUI();
+        return;
+      }
+
+      // If we are already playing, check if server says a different track is current
+      // or if our elapsed differs too much; if so, re-sync immediately.
+      const needTrackSwap = currentAudio.src.endsWith(`/songs/${queue[currentIndex]?.fileName}`) === false;
+      const localElapsed = currentAudio.currentTime || 0;
+      const predictedElapsed = serverElapsed + (Date.now() - serverUpdateAt) / 1000;
+      const drift = Math.abs(localElapsed - predictedElapsed);
+
+      if (needTrackSwap || drift > 1.0) {
+        // Hard re-sync with server timeline
+        primeAndPlayCurrent(predictedElapsed).catch(console.error);
+      }
+
+      // Always refresh UI and preload next
+      updateUI();
+      preloadNext();
+    }
+  };
+
+  ws.onclose = () => {
+    // Simple auto-reconnect
+    setTimeout(connectWS, 1000);
+  };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch {}
+  };
 }
 
-// progress updater
-async function updateProgress() {
-  try {
-    const res = await fetch(`/stream/${streamId}/currentTrack`);
-    const data = await res.json();
-    const elapsed = data.elapsed;
-    const duration = queue[data.currentIndex]?.meta?.duration || 1;
-    const percent = Math.min((elapsed / duration) * 100, 100);
-    progressBarEl.style.width = percent + '%';
-  } catch (err) {
-    console.error("Progress error:", err);
+/** ---------- AUDIO CONTROL ---------- **/
+async function primeAndPlayCurrent(forceElapsed = 0) {
+  const cur = queue[currentIndex];
+  if (!cur) return;
+
+  // Set current source and position
+  currentAudio.src = `/songs/${cur.fileName}`;
+  // Make sure we can set currentTime: wait for metadata if needed
+  if (currentAudio.readyState < 1) {
+    await new Promise(res => {
+      const onMeta = () => { currentAudio.removeEventListener('loadedmetadata', onMeta); res(); };
+      currentAudio.addEventListener('loadedmetadata', onMeta);
+      // Fallback timeout in case metadata event doesn't fire
+      setTimeout(res, 300);
+    });
   }
-  requestAnimationFrame(updateProgress);
+  // Clamp within track bounds
+  const dur = getDurationOf(currentIndex);
+  const target = Math.min(Math.max(forceElapsed || 0, 0), dur - 0.25);
+  try { currentAudio.currentTime = target; } catch {}
+
+  updateMediaSession(cur.meta);
+  await currentAudio.play();
+
+  // onended -> swap to already-preloaded next track (gapless)
+  currentAudio.onended = () => {
+    // Trust server to also advance its index; our UI will update via WS.
+    currentIndex = (currentIndex + 1) % queue.length;
+    [currentAudio, nextAudio] = [nextAudio, currentAudio];
+    updateUI();
+    updateMediaSession(queue[currentIndex]?.meta || {});
+    currentAudio.play().catch(()=>{});
+    preloadNext(); // prepare following track
+  };
 }
 
-// start stream
-document.getElementById('startBtn').addEventListener('click', async () => {
-  await syncStream(true);
-  updateProgress();
-  document.getElementById('startBtn').style.display = 'none';
+function preloadNext() {
+  if (!queue.length) return;
+  const nextIndex = (currentIndex + 1) % queue.length;
+  const next = queue[nextIndex];
+  if (!next) return;
+  nextAudio.src = `/songs/${next.fileName}`;
+  // Preload without autoplay
+  try { nextAudio.load(); } catch {}
+}
+
+/** ---------- PROGRESS RENDER ---------- **/
+function renderProgress() {
+  if (!started || !queue.length) {
+    requestAnimationFrame(renderProgress);
+    return;
+  }
+  const dur = getDurationOf(currentIndex) || 1;
+  const pct = Math.min((currentAudio.currentTime / dur) * 100, 100);
+  progressEl.style.width = pct + '%';
+  requestAnimationFrame(renderProgress);
+}
+
+/** ---------- BOOTSTRAP ---------- **/
+// User gesture required: set up audio & WS
+startBtn.addEventListener('click', async () => {
+  if (started) return;
+  started = true;
+
+  connectWS();
+
+  // Wait a moment for first WS update to arrive (initial state).
+  // If none arrive quickly, fall back to one-time HTTP fetch.
+  const failSafe = setTimeout(async () => {
+    try {
+      const res = await fetch(`/stream/${streamId}/currentTrack`);
+      const data = await res.json();
+      // Build queue in the same format frontend expects
+      queue = (data.queue || []).map(item => ({
+        fileName: item.fileName,
+        meta: item.meta
+      }));
+      currentIndex = data.currentIndex || 0;
+      serverElapsed = data.elapsed || 0;
+      serverUpdateAt = Date.now();
+      updateUI();
+      await primeAndPlayCurrent(serverElapsed);
+      preloadNext();
+    } catch (e) {
+      console.error('Initial HTTP sync failed:', e);
+    }
+  }, 500);
+
+  // If WS update comes in before the timeout, cancel fallback
+  const cancelFailSafeOnWS = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'update') {
+        clearTimeout(failSafe);
+        ws.removeEventListener('message', cancelFailSafeOnWS);
+        // After first WS update, actually start playback using server time
+        const predictedElapsed = serverElapsed + (Date.now() - serverUpdateAt) / 1000;
+        primeAndPlayCurrent(predictedElapsed).then(preloadNext).catch(console.error);
+      }
+    } catch {}
+  };
+  ws?.addEventListener('message', cancelFailSafeOnWS);
+
+  // Start progress loop
+  renderProgress();
+
+  // Hide button
+  startBtn.style.display = 'none';
 });
-</script>
 
+</script>
 </body>
 </html>
