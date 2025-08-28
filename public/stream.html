@@ -3,154 +3,419 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Live Stream Player</title>
+<!-- Updated title to ReikerNx -->
+<title>ReikerNx - Live Stream Player</title>
 <style>
   body {
-    font-family: 'Segoe UI', sans-serif;
-    background: #121212;
-    color: #fff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #000000;
+    color: #ffffff;
     margin: 0;
     padding: 20px;
     min-height: 100vh;
   }
+  
+  /* Added iOS liquid glass container with backdrop blur */
   .container {
     max-width: 800px;
     margin: 0 auto;
     display: grid;
     grid-template-columns: 1fr 300px;
     gap: 20px;
+    position: relative;
   }
-  .player {
-    background: #1e1e1e;
-    padding: 25px 30px;
-    border-radius: 12px;
-    text-align: center;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-    height: fit-content;
-  }
-  .sidebar {
-    background: #1e1e1e;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-    height: fit-content;
-  }
-  .cover {
-    width: 100%; height: 200px; margin-bottom: 15px;
-    border-radius: 10px; object-fit: cover; background: #333;
-  }
-  .song-title {
-    font-size: 18px; font-weight: bold; margin-bottom: 5px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .song-meta { font-size: 14px; color: #aaa; margin-bottom: 15px; }
-  .progress-container {
-    background: #333; height: 8px; border-radius: 8px;
-    width: 100%; margin-bottom: 20px; overflow: hidden;
-  }
-  .progress {
-    background: #1db954; width: 0%; height: 100%;
-    transition: width 0.15s linear;
-  }
-  #startBtn {
-    background: #1db954; border: none; color: #fff;
-    padding: 12px 25px; border-radius: 25px; cursor: pointer; font-size: 16px;
-  }
-  #startBtn:hover { background: #1ed760; }
   
-  /* Sidebar Styles */
+  /* Enhanced player with iOS liquid glass styling */
+  .player {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(29, 185, 84, 0.3);
+    padding: 30px;
+    border-radius: 24px;
+    text-align: center;
+    box-shadow: 
+      0 8px 32px rgba(29, 185, 84, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+    height: fit-content;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  /* Added subtle glass reflection overlay */
+  .player::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%);
+    pointer-events: none;
+    border-radius: 24px 24px 0 0;
+  }
+  
+  /* Updated site branding to ReikerNx */
+  .site-branding {
+    position: absolute;
+    top: 15px;
+    left: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #1db954;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  
+  .spotify-logo {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    width: 24px;
+    height: 24px;
+    fill: #1db954;
+  }
+  
+  /* Enhanced sidebar with liquid glass effect */
+  .sidebar {
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(29, 185, 84, 0.3);
+    padding: 20px;
+    border-radius: 24px;
+    box-shadow: 
+      0 8px 32px rgba(29, 185, 84, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+    height: fit-content;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  /* Added glass reflection to sidebar */
+  .sidebar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%);
+    pointer-events: none;
+    border-radius: 24px 24px 0 0;
+  }
+  
+  /* Enhanced cover art with liquid glass border */
+  .cover {
+    width: 100%; 
+    height: 220px; 
+    margin-bottom: 20px;
+    border-radius: 20px; 
+    object-fit: cover; 
+    background: #111111;
+    border: 2px solid rgba(29, 185, 84, 0.4);
+    box-shadow: 
+      0 8px 24px rgba(29, 185, 84, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .song-title {
+    font-size: 20px; 
+    font-weight: bold; 
+    margin-bottom: 8px;
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    white-space: nowrap;
+    color: #ffffff;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    position: relative;
+    z-index: 1;
+  }
+  
+  .song-meta { 
+    font-size: 14px; 
+    color: #b3b3b3; 
+    margin-bottom: 20px;
+    position: relative;
+    z-index: 1;
+  }
+  
+  /* Enhanced progress container with glass styling */
+  .progress-container {
+    background: rgba(51, 51, 51, 0.6); 
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    height: 8px; 
+    border-radius: 12px;
+    width: 100%; 
+    margin-bottom: 25px; 
+    overflow: hidden;
+    box-shadow: 
+      inset 0 2px 4px rgba(0,0,0,0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    z-index: 1;
+  }
+  
+  .progress {
+    background: linear-gradient(90deg, #1db954, #1ed760); 
+    width: 0%; 
+    height: 100%;
+    transition: width 0.15s linear;
+    border-radius: 12px;
+    box-shadow: 0 0 12px rgba(29, 185, 84, 0.4);
+  }
+  
+  /* Enhanced button with liquid glass effect */
+  #startBtn {
+    background: rgba(29, 185, 84, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2); 
+    color: #000000;
+    padding: 16px 32px; 
+    border-radius: 20px; 
+    cursor: pointer; 
+    font-size: 16px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 
+      0 8px 24px rgba(29, 185, 84, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+  }
+  
+  /* Added glass reflection to button */
+  #startBtn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 100%);
+    pointer-events: none;
+    border-radius: 20px 20px 0 0;
+  }
+  
+  #startBtn:hover { 
+    background: rgba(30, 215, 96, 0.95);
+    transform: translateY(-2px);
+    box-shadow: 
+      0 12px 32px rgba(29, 185, 84, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  }
+  
   .section {
     margin-bottom: 30px;
+    position: relative;
+    z-index: 1;
   }
+  
+  /* Enhanced section headers with glass styling */
   .section h3 {
     font-size: 16px;
     margin-bottom: 15px;
-    color: #fff;
-    border-bottom: 2px solid #1db954;
-    padding-bottom: 5px;
+    color: #ffffff;
+    border-bottom: 2px solid rgba(29, 185, 84, 0.6);
+    padding-bottom: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
   }
+  
+  /* Enhanced scrollbars with glass effect */
   .users-list {
     max-height: 200px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(29, 185, 84, 0.8) transparent;
   }
+  .users-list::-webkit-scrollbar {
+    width: 8px;
+  }
+  .users-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+  }
+  .users-list::-webkit-scrollbar-thumb {
+    background: rgba(29, 185, 84, 0.8);
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+  
+  /* Enhanced user items with liquid glass hover */
   .user-item {
     display: flex;
     align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #333;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(29, 185, 84, 0.2);
+    transition: all 0.3s ease;
+    border-radius: 12px;
   }
   .user-item:last-child {
     border-bottom: none;
   }
+  .user-item:hover {
+    background: rgba(29, 185, 84, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(29, 185, 84, 0.3);
+    padding: 12px 8px;
+    box-shadow: 
+      0 4px 16px rgba(29, 185, 84, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Enhanced user avatar with glass effect */
   .user-avatar {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    background: #1db954;
+    background: rgba(29, 185, 84, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-right: 10px;
+    margin-right: 12px;
     font-weight: bold;
     font-size: 14px;
+    color: #000000;
+    box-shadow: 
+      0 4px 12px rgba(29, 185, 84, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
   }
+  
   .user-name {
     font-size: 14px;
-    color: #fff;
+    color: #ffffff;
+    font-weight: 500;
   }
+  
   .queue-list {
     max-height: 300px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(29, 185, 84, 0.8) transparent;
   }
+  .queue-list::-webkit-scrollbar {
+    width: 8px;
+  }
+  .queue-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+  }
+  .queue-list::-webkit-scrollbar-thumb {
+    background: rgba(29, 185, 84, 0.8);
+    border-radius: 10px;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+  }
+  
+  /* Enhanced queue items with glass styling */
   .queue-item {
     display: flex;
-    padding: 10px 0;
-    border-bottom: 1px solid #333;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(29, 185, 84, 0.2);
+    transition: all 0.3s ease;
+    border-radius: 12px;
   }
   .queue-item:last-child {
     border-bottom: none;
   }
-  .queue-item.current {
+  .queue-item:hover {
     background: rgba(29, 185, 84, 0.1);
-    border-radius: 8px;
-    padding: 10px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(29, 185, 84, 0.3);
+    padding: 12px 8px;
+    box-shadow: 
+      0 4px 16px rgba(29, 185, 84, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Enhanced current queue item with stronger glass effect */
+  .queue-item.current {
+    background: rgba(29, 185, 84, 0.2);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(29, 185, 84, 0.5);
+    border-radius: 16px;
+    padding: 12px;
     margin: 5px 0;
+    box-shadow: 
+      0 8px 24px rgba(29, 185, 84, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
   }
+  
+  /* Enhanced queue thumbnail with glass border */
   .queue-thumbnail {
-    width: 40px;
-    height: 40px;
-    border-radius: 6px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
     object-fit: cover;
-    margin-right: 10px;
-    background: #333;
+    margin-right: 12px;
+    background: #111111;
+    border: 1px solid rgba(29, 185, 84, 0.4);
+    box-shadow: 
+      0 2px 8px rgba(29, 185, 84, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
+  
   .queue-info {
     flex: 1;
   }
   .queue-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: #fff;
-    margin-bottom: 3px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .queue-duration {
     font-size: 12px;
-    color: #aaa;
+    color: #b3b3b3;
   }
   .queue-index {
     font-size: 12px;
     color: #1db954;
-    margin-right: 10px;
+    margin-right: 12px;
     font-weight: bold;
-    min-width: 20px;
+    min-width: 24px;
+    text-align: center;
   }
   .current-indicator {
     color: #1db954;
     font-size: 12px;
-    margin-left: 5px;
+    margin-left: 8px;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(29, 185, 84, 0.6);
+  }
+  
+  .empty-state {
+    text-align: center; 
+    color: #666666; 
+    padding: 20px;
+    font-style: italic;
   }
   
   @media (max-width: 768px) {
@@ -161,6 +426,9 @@
     .sidebar {
       order: -1;
     }
+    .player {
+      padding: 20px;
+    }
   }
 </style>
 </head>
@@ -168,25 +436,32 @@
 
 <div class="container">
   <div class="player">
+    <!-- Added ReikerNx branding -->
+    <div class="site-branding">ReikerNx</div>
+    
+    <svg class="spotify-logo" viewBox="0 0 24 24">
+      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+    </svg>
+    
     <img id="coverArt" class="cover" src="/default-artwork.png" alt="Cover">
     <div class="song-title" id="songTitle">Loading...</div>
     <div class="song-meta" id="songMeta">--</div>
     <div class="progress-container"><div class="progress" id="progressBar"></div></div>
-    <button id="startBtn">Start Stream</button>
+    <button id="startBtn">▶ Start Stream</button>
   </div>
 
   <div class="sidebar">
     <div class="section">
-      <h3>👥 Listeners (<span id="userCount">0</span>)</h3>
+      <h3>🎧 Listeners (<span id="userCount">0</span>)</h3>
       <div class="users-list" id="usersList">
-        <div style="text-align: center; color: #666; padding: 20px;">No listeners yet</div>
+        <div class="empty-state">No listeners yet</div>
       </div>
     </div>
 
     <div class="section">
       <h3>🎵 Queue (<span id="queueCount">0</span>)</h3>
       <div class="queue-list" id="queueList">
-        <div style="text-align: center; color: #666; padding: 20px;">No songs queued</div>
+        <div class="empty-state">No songs queued</div>
       </div>
     </div>
   </div>
@@ -288,7 +563,7 @@ function updateUsersDisplay() {
   userCountEl.textContent = users.length;
   
   if (users.length === 0) {
-    usersListEl.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No listeners yet</div>';
+    usersListEl.innerHTML = '<div class="empty-state">No listeners yet</div>';
     return;
   }
 
@@ -304,7 +579,7 @@ function updateQueueDisplay() {
   queueCountEl.textContent = queue.length;
   
   if (queue.length === 0) {
-    queueListEl.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No songs queued</div>';
+    queueListEl.innerHTML = '<div class="empty-state">No songs queued</div>';
     return;
   }
 
