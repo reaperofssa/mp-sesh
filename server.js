@@ -325,12 +325,18 @@ function broadcastQueueUpdate(streamId, newSong, queueLength) {
   }
 }
 
-// WebSocket for real-time sync
+// WebSocket for real-time sync - Updated to match frontend expectations
 wss.on('connection', (ws, req) => {
   const urlParts = req.url.split('/');
   const streamId = urlParts[urlParts.length - 1];
 
-  const stream = streams[streamId];
+  // Handle frontend WebSocket path format: /stream-ws/:streamId
+  let actualStreamId = streamId;
+  if (req.url.includes('/stream-ws/')) {
+    actualStreamId = req.url.split('/stream-ws/')[1];
+  }
+
+  const stream = streams[actualStreamId];
   if (!stream) {
     ws.send(JSON.stringify({ type: 'error', message: 'Stream not found' }));
     ws.close();
@@ -338,16 +344,50 @@ wss.on('connection', (ws, req) => {
   }
 
   // Save client
+  if (!stream.clients) {
+    stream.clients = new Set();
+  }
   stream.clients.add(ws);
 
   // Update stream activity
   stream.lastActivity = Date.now();
 
   // Send initial state
-  sendStreamUpdate(streamId);
+  sendStreamUpdate(actualStreamId);
 
   ws.on('close', () => {
     stream.clients.delete(ws);
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+    stream.clients.delete(ws);
+  });
+});
+
+// GET current track endpoint for frontend fallback
+app.get('/stream/:streamId/currentTrack', (req, res) => {
+  const { streamId } = req.params;
+  const stream = streams[streamId];
+  
+  if (!stream) {
+    return res.status(404).json({ error: 'Stream not found' });
+  }
+
+  const now = Date.now();
+  const current = stream.queue[stream.currentIndex];
+  const elapsed = current ? (now - stream.songStartTime) / 1000 : 0;
+
+  res.json({
+    streamId,
+    queue: stream.queue,
+    currentIndex: stream.currentIndex,
+    elapsed: elapsed,
+    isPlaying: stream.isPlaying !== false,
+    current: current ? {
+      file: `/songs/${current.fileName}`,
+      meta: current.meta
+    } : null
   });
 });
 
@@ -375,9 +415,14 @@ function sendStreamUpdate(streamId) {
     next: nextSong
       ? { file: `/songs/${nextSong.fileName}`, meta: nextSong.meta }
       : null,
+    queue: stream.queue, // Frontend expects full queue for display
     queueLength: stream.queue.length,
     isPlaying: stream.isPlaying !== false // Default to true for backwards compatibility
   };
+
+  if (!stream.clients) {
+    stream.clients = new Set();
+  }
 
   for (const client of stream.clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -795,7 +840,26 @@ bot.command('queue', async (ctx) => {
       sendStreamUpdate(streamId);
     } else {
       // Send lightweight queue update to prevent interruption during playback
-      broadcastQueueUpdate(streamId, songInfo, stream.queue.length);
+      const lightPayload = {
+        type: 'song_queued',
+        data: {
+          song: songInfo,
+          queueLength: stream.queue.length,
+          position: stream.queue.length,
+          queue: stream.queue // Include full queue for frontend display
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      if (!stream.clients) {
+        stream.clients = new Set();
+      }
+
+      for (const client of stream.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(lightPayload));
+        }
+      }
     }
 
     // Send confirmation to the person who queued the song
