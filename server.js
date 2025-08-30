@@ -20,7 +20,7 @@ const SONGS_DIR = path.join(__dirname, 'songs');
 if (!fs.existsSync(SONGS_DIR)) fs.mkdirSync(SONGS_DIR);
 
 // Memory storage
-// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws), users:Map(userId -> {id, name, joinedAt}), ownerId, lastActivity }
+// streams[streamId] = { queue, currentIndex, songStartTime, clients:Set(ws), users:Map(userId -> {id, name, joinedAt}), ownerId, lastActivity, isPlaying }
 const streams = {};
 
 // Constants
@@ -285,7 +285,7 @@ async function notifyUsersAboutNewSong(streamId, songData, queuedBy) {
   }
 }
 
-// Broadcast user updates to WebSocket clients
+// Broadcast user updates to WebSocket clients (lightweight)
 function broadcastUserUpdate(streamId, type, userData) {
   const stream = streams[streamId];
   if (!stream) return;
@@ -293,6 +293,28 @@ function broadcastUserUpdate(streamId, type, userData) {
   const payload = {
     type,
     data: userData,
+    timestamp: new Date().toISOString()
+  };
+
+  for (const client of stream.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(payload));
+    }
+  }
+}
+
+// Lightweight queue update notification (only sends new song info, not full queue)
+function broadcastQueueUpdate(streamId, newSong, queueLength) {
+  const stream = streams[streamId];
+  if (!stream) return;
+
+  const payload = {
+    type: 'song_queued',
+    data: {
+      song: newSong,
+      queueLength: queueLength,
+      position: queueLength
+    },
     timestamp: new Date().toISOString()
   };
 
@@ -329,17 +351,18 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Broadcast helper
+// Broadcast helper - optimized to reduce payload size
 function sendStreamUpdate(streamId) {
   const stream = streams[streamId];
-  if (!stream) return;
+  if (!stream || stream.queue.length === 0) return;
 
   const now = Date.now();
   const current = stream.queue[stream.currentIndex];
   const elapsed = (now - stream.songStartTime) / 1000;
 
-  const nextIndex = (stream.currentIndex + 1) % stream.queue.length;
-  const nextSong = stream.queue[nextIndex];
+  // Check if there's a next song (no looping)
+  const nextIndex = stream.currentIndex + 1;
+  const nextSong = nextIndex < stream.queue.length ? stream.queue[nextIndex] : null;
 
   const payload = {
     type: 'update',
@@ -352,7 +375,8 @@ function sendStreamUpdate(streamId) {
     next: nextSong
       ? { file: `/songs/${nextSong.fileName}`, meta: nextSong.meta }
       : null,
-    queue: stream.queue
+    queueLength: stream.queue.length,
+    isPlaying: stream.isPlaying !== false // Default to true for backwards compatibility
   };
 
   for (const client of stream.clients) {
@@ -434,7 +458,8 @@ bot.command('stream', async (ctx) => {
       clients: new Set(),
       users: new Map(),
       ownerId: ownerId, // Store stream owner
-      lastActivity: Date.now() // Track stream activity
+      lastActivity: Date.now(), // Track stream activity
+      isPlaying: true // Track playing state
     };
 
     // Send message with WebApp button and copyable stream ID
@@ -637,14 +662,15 @@ bot.command('next', async (ctx) => {
     // If user owns only one stream, skip to next song
     const [streamId, stream] = ownedStreams[0];
     
-    if (stream.queue.length <= 1) {
+    if (stream.currentIndex + 1 >= stream.queue.length) {
       return ctx.reply('⚠️ No more songs in the queue to skip to.');
     }
     
     // Skip to next song
-    stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
+    stream.currentIndex = stream.currentIndex + 1;
     stream.songStartTime = Date.now();
     stream.lastActivity = Date.now();
+    stream.isPlaying = true;
     
     // Notify all clients via WebSocket
     sendStreamUpdate(streamId);
@@ -683,14 +709,15 @@ bot.action(/^next_(.+)$/, async (ctx) => {
     return ctx.answerCbQuery('❌ You can only control your own streams', true);
   }
   
-  if (stream.queue.length <= 1) {
+  if (stream.currentIndex + 1 >= stream.queue.length) {
     return ctx.answerCbQuery('⚠️ No more songs in the queue', true);
   }
   
   // Skip to next song
-  stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
+  stream.currentIndex = stream.currentIndex + 1;
   stream.songStartTime = Date.now();
   stream.lastActivity = Date.now();
+  stream.isPlaying = true;
   
   // Notify all clients via WebSocket
   sendStreamUpdate(streamId);
@@ -703,7 +730,7 @@ bot.action(/^next_(.+)$/, async (ctx) => {
   });
 });
 
-// 🎶 Queue another song
+// 🎶 Queue another song - OPTIMIZED to prevent lag
 bot.command('queue', async (ctx) => {
   const args = ctx.message.text.split(' ');
   if (args.length < 3) return ctx.reply('Usage: /queue <streamId> <song name>');
@@ -755,11 +782,21 @@ bot.command('queue', async (ctx) => {
       }
     };
 
+    // Add song to queue
     stream.queue.push(songInfo);
     stream.lastActivity = Date.now();
 
-    // 🔔 Notify clients
-    sendStreamUpdate(streamId);
+    // If stream was stopped (no current song playing), start playing the new song
+    if (!stream.isPlaying || stream.currentIndex >= stream.queue.length - 1) {
+      stream.currentIndex = stream.queue.length - 1;
+      stream.songStartTime = Date.now();
+      stream.isPlaying = true;
+      // Send full update when starting playback
+      sendStreamUpdate(streamId);
+    } else {
+      // Send lightweight queue update to prevent interruption during playback
+      broadcastQueueUpdate(streamId, songInfo, stream.queue.length);
+    }
 
     // Send confirmation to the person who queued the song
     const duration = Math.floor(audioMeta.duration / 60) + ':' + Math.floor(audioMeta.duration % 60).toString().padStart(2, '0');
@@ -777,19 +814,42 @@ bot.command('queue', async (ctx) => {
   }
 });
 
-// Auto-advance
+// Auto-advance - FIXED to stop looping
 setInterval(() => {
   for (const streamId in streams) {
     const stream = streams[streamId];
     const current = stream.queue[stream.currentIndex];
-    if (!current) continue;
+    if (!current || !stream.isPlaying) continue;
 
     const elapsed = (Date.now() - stream.songStartTime) / 1000;
     if (elapsed >= current.meta.duration) {
-      stream.currentIndex = (stream.currentIndex + 1) % stream.queue.length;
-      stream.songStartTime = Date.now();
-      stream.lastActivity = Date.now();
-      sendStreamUpdate(streamId);
+      // Check if there's a next song (don't loop)
+      if (stream.currentIndex + 1 < stream.queue.length) {
+        // Move to next song
+        stream.currentIndex = stream.currentIndex + 1;
+        stream.songStartTime = Date.now();
+        stream.lastActivity = Date.now();
+        stream.isPlaying = true;
+        sendStreamUpdate(streamId);
+      } else {
+        // No more songs - stop playing and wait
+        stream.isPlaying = false;
+        
+        // Notify clients that playback has stopped
+        const payload = {
+          type: 'playback_stopped',
+          message: 'No more songs in queue. Add more songs to continue!',
+          timestamp: new Date().toISOString()
+        };
+
+        for (const client of stream.clients) {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(payload));
+          }
+        }
+        
+        console.log(`🛑 Stream ${streamId} stopped - no more songs in queue`);
+      }
     }
   }
 }, 1000);
